@@ -18,8 +18,9 @@ from batchgenerators.utilities.file_and_folder_operations import *
 import numpy as np
 
 
-def find_candidate_datasets(dataset_id: int):
+def find_candidate_datasets_by_index(dataset_id: int):
     startswith = "Dataset%03.0d" % dataset_id
+    
     if nnUNet_preprocessed is not None and isdir(nnUNet_preprocessed):
         candidates_preprocessed = subdirs(nnUNet_preprocessed, prefix=startswith, join=False)
     else:
@@ -37,6 +38,39 @@ def find_candidate_datasets(dataset_id: int):
     all_candidates = candidates_preprocessed + candidates_raw + candidates_trained_models
     unique_candidates = np.unique(all_candidates)
     return unique_candidates
+
+
+def find_candidate_datasets_by_name(dataset_id: str):
+    if nnUNet_preprocessed is not None and isdir(nnUNet_preprocessed):
+        candidates_preprocessed = join(nnUNet_preprocessed, dataset_id)
+        candidates_preprocessed = [candidates_preprocessed] if isdir(candidates_preprocessed) else []
+    else:
+        candidates_preprocessed = []
+
+    if nnUNet_raw is not None and isdir(nnUNet_raw):
+        candidates_raw = join(nnUNet_raw, dataset_id)
+        candidates_raw = [candidates_raw] if isdir(candidates_raw) else []
+    else:
+        candidates_raw = []
+
+    if nnUNet_results is not None and isdir(nnUNet_results):
+        candidates_trained_models = join(nnUNet_preprocessed, dataset_id)
+        candidates_trained_models = [candidates_trained_models] if isdir(candidates_trained_models) else []
+    else:
+        candidates_trained_models =[]
+
+    all_candidates = candidates_preprocessed + candidates_raw + candidates_trained_models
+    unique_candidates = np.unique(all_candidates)
+    return unique_candidates
+
+
+def find_candidate_datasets(dataset_id: Union[int, str]):
+    if isinstance(dataset_id, int):
+        return find_candidate_datasets_by_index(dataset_id)
+    elif isinstance(dataset_id, str):
+        return find_candidate_datasets_by_name(dataset_id)
+    else:
+        raise ValueError(f"Error: unexpected dataset_id: {dataset_id}. Supported types are int and str.")
 
 
 def convert_id_to_dataset_name(dataset_id: int):

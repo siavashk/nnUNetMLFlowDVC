@@ -1,11 +1,19 @@
+from typing import Union
+
 from nnunetv2.configuration import default_num_processes
 from nnunetv2.experiment_planning.plan_and_preprocess_api import extract_fingerprints, plan_experiments, preprocess
+
+def get_dataset_id(d: str) -> Union[int, str]:
+    try:
+        return int(d)
+    except:
+        return d
 
 
 def extract_fingerprint_entry():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('-d', nargs='+', type=int,
+    parser.add_argument('-d', nargs='+', type=get_dataset_id,
                         help="[REQUIRED] List of dataset IDs. Example: 2 4 5. This will run fingerprint extraction, experiment "
                              "planning and preprocessing for these datasets. Can of course also be just one dataset")
     parser.add_argument('-fpe', type=str, required=False, default='DatasetFingerprintExtractor',
@@ -30,7 +38,7 @@ def extract_fingerprint_entry():
 def plan_experiment_entry():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('-d', nargs='+', type=int,
+    parser.add_argument('-d', nargs='+', type=get_dataset_id,
                         help="[REQUIRED] List of dataset IDs. Example: 2 4 5. This will run fingerprint extraction, experiment "
                              "planning and preprocessing for these datasets. Can of course also be just one dataset")
     parser.add_argument('-pl', type=str, default='ExperimentPlanner', required=False,
@@ -69,7 +77,7 @@ def plan_experiment_entry():
 def preprocess_entry():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('-d', nargs='+', type=int,
+    parser.add_argument('-d', nargs='+', type=get_dataset_id,
                         help="[REQUIRED] List of dataset IDs. Example: 2 4 5. This will run fingerprint extraction, experiment "
                              "planning and preprocessing for these datasets. Can of course also be just one dataset")
     parser.add_argument('-plans_name', default='nnUNetPlans', required=False,
@@ -109,7 +117,7 @@ def preprocess_entry():
 def plan_and_preprocess_entry():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('-d', nargs='+', type=int,
+    parser.add_argument('-d', nargs='+', type=get_dataset_id,
                         help="[REQUIRED] List of dataset IDs. Example: 2 4 5. This will run fingerprint extraction, experiment "
                              "planning and preprocessing for these datasets. Can of course also be just one dataset")
     parser.add_argument('-fpe', type=str, required=False, default='DatasetFingerprintExtractor',
@@ -179,6 +187,7 @@ def plan_and_preprocess_entry():
 
     # fingerprint extraction
     print("Fingerprint extraction...")
+
     extract_fingerprints(args.d, args.fpe, args.npfp, args.verify_dataset_integrity, args.clean, args.verbose)
 
     # experiment planning

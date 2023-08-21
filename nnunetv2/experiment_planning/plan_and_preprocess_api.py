@@ -15,7 +15,7 @@ from nnunetv2.configuration import default_num_processes
 from nnunetv2.utilities.utils import get_filenames_of_train_images_and_targets
 
 
-def extract_fingerprint_dataset(dataset_id: int,
+def extract_fingerprint_dataset(dataset_id: Union[int, str],
                                 fingerprint_extractor_class: Type[
                                     DatasetFingerprintExtractor] = DatasetFingerprintExtractor,
                                 num_processes: int = default_num_processes, check_dataset_integrity: bool = False,
@@ -24,7 +24,6 @@ def extract_fingerprint_dataset(dataset_id: int,
     Returns the fingerprint as a dictionary (additionally to saving it)
     """
     dataset_name = convert_id_to_dataset_name(dataset_id)
-    print(dataset_name)
 
     if check_dataset_integrity:
         verify_dataset_integrity(join(nnUNet_raw, dataset_name), num_processes)
@@ -33,7 +32,7 @@ def extract_fingerprint_dataset(dataset_id: int,
     return fpe.run(overwrite_existing=clean)
 
 
-def extract_fingerprints(dataset_ids: List[int], fingerprint_extractor_class_name: str = 'DatasetFingerprintExtractor',
+def extract_fingerprints(dataset_ids: List[Union[int, str]], fingerprint_extractor_class_name: str = 'DatasetFingerprintExtractor',
                          num_processes: int = default_num_processes, check_dataset_integrity: bool = False,
                          clean: bool = True, verbose: bool = True):
     """
@@ -136,3 +135,12 @@ def preprocess(dataset_ids: List[int],
                verbose: bool = False):
     for d in dataset_ids:
         preprocess_dataset(d, plans_identifier, configurations, num_processes, verbose)
+
+
+def copy_dvc_info(dataset_id: Union[int, str]):
+    dataset_name = convert_id_to_dataset_name(dataset_id)
+    dvc_name = f"{dataset_name}.dvc"
+
+    print(f'Preprocessing dataset {dataset_name}')
+    destination_file = join(nnUNet_preprocessed, dataset_name, plans_identifier + '.dvc')
+    shutil.copy(dvc_name, destination_file)
