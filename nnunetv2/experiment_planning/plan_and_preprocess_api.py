@@ -137,10 +137,14 @@ def preprocess(dataset_ids: List[int],
         preprocess_dataset(d, plans_identifier, configurations, num_processes, verbose)
 
 
-def copy_dvc_info(dataset_id: Union[int, str]):
-    dataset_name = convert_id_to_dataset_name(dataset_id)
-    dvc_name = f"{dataset_name}.dvc"
+def copy_dvc_info(dataset_ids: List[Union[int, str]]):
+    def helper(dataset_id: Union[int, str]):
+        dataset_name = convert_id_to_dataset_name(dataset_id)
+        dvc_name = join(nnUNet_raw, f"{dataset_name}.dvc")
 
-    print(f'Preprocessing dataset {dataset_name}')
-    destination_file = join(nnUNet_preprocessed, dataset_name, plans_identifier + '.dvc')
-    shutil.copy(dvc_name, destination_file)
+        print(f'Copying DVC info {dataset_name}')
+        destination_file = join(nnUNet_preprocessed, dataset_name, 'dataset_info.dvc')
+        shutil.copy(dvc_name, destination_file)
+    
+    for dataset_id in dataset_ids:
+        helper(dataset_id)

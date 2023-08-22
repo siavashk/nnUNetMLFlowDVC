@@ -1,7 +1,7 @@
 from typing import Union
 
 from nnunetv2.configuration import default_num_processes
-from nnunetv2.experiment_planning.plan_and_preprocess_api import extract_fingerprints, plan_experiments, preprocess
+from nnunetv2.experiment_planning.plan_and_preprocess_api import extract_fingerprints, plan_experiments, preprocess, copy_dvc_info
 
 def get_dataset_id(d: str) -> Union[int, str]:
     try:
@@ -112,6 +112,7 @@ def preprocess_entry():
     else:
         np = args.np
     preprocess(args.d, args.plans_name, configurations=args.c, num_processes=np, verbose=args.verbose)
+    copy_dvc_info(args.d)
 
 
 def plan_and_preprocess_entry():
@@ -200,10 +201,13 @@ def plan_and_preprocess_entry():
         np = [default_np[c] if c in default_np.keys() else 4 for c in args.c]
     else:
         np = args.np
+    
     # preprocessing
     if not args.no_pp:
         print('Preprocessing...')
         preprocess(args.d, args.overwrite_plans_name, args.c, np, args.verbose)
+     
+    copy_dvc_info(args.d)
 
 
 if __name__ == '__main__':
