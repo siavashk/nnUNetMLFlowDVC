@@ -21,6 +21,8 @@ PLEASE READ paths.md FOR INFORMATION TO HOW TO SET THIS UP
 nnUNet_raw = os.environ.get('nnUNet_raw')
 nnUNet_preprocessed = os.environ.get('nnUNet_preprocessed')
 nnUNet_results = os.environ.get('nnUNet_results')
+mlflow_tracking_token = os.environ.get('MLFLOW_TRACKING_TOKEN')
+mlflow_tracking_uri = os.environ.get('MLFLOW_TRACKING_URI')
 
 if nnUNet_raw is None:
     print("nnUNet_raw is not defined and nnU-Net can only be used on data for which preprocessed files "
@@ -37,3 +39,15 @@ if nnUNet_results is None:
     print("nnUNet_results is not defined and nnU-Net cannot be used for training or "
           "inference. If this is not intended behavior, please read documentation/setting_up_paths.md for information "
           "on how to set this up.")
+
+if mlflow_tracking_token is None:
+    print("mlflow_tracking_token is not defined so the experiment tracking cannot be sent "
+          "to mlflow. If this is not intended behavior, please read documentation/setting_up_paths.md for information "
+          "on how to set this up.")
+    
+if mlflow_tracking_uri is None:
+    print("mlflow_tracking_uri is not defined so the experiment tracking cannot be sent "
+          "to mlflow. If this is not intended behavior, please read documentation/setting_up_paths.md for information "
+          "on how to set this up.")
+
+

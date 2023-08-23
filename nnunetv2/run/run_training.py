@@ -1,19 +1,26 @@
 import os
 import socket
 from typing import Union, Optional
+import yaml
+
+import mlflow
 
 import nnunetv2
 import torch.cuda
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from batchgenerators.utilities.file_and_folder_operations import join, isfile, load_json
-from nnunetv2.paths import nnUNet_preprocessed
+from nnunetv2.paths import nnUNet_preprocessed, mlflow_tracking_token, mlflow_tracking_uri
 from nnunetv2.run.load_pretrained_weights import load_pretrained_weights
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
 from nnunetv2.utilities.find_class_by_name import recursive_find_python_class
 from torch.backends import cudnn
 
+
+def load_yaml(filename: str):
+    with open(filename, 'r') as f:
+        return yaml.safe_load(f)
 
 def find_free_network_port() -> int:
     """Finds a free port on localhost.
@@ -47,21 +54,26 @@ def get_trainer_from_args(dataset_name_or_id: Union[int, str],
                                                     'nnUNetTrainer'
 
     # handle dataset input. If it's an ID we need to convert to int from string
-    if dataset_name_or_id.startswith('Dataset'):
-        pass
-    else:
-        try:
-            dataset_name_or_id = int(dataset_name_or_id)
-        except ValueError:
-            raise ValueError(f'dataset_name_or_id must either be an integer or a valid dataset name with the pattern '
-                             f'DatasetXXX_YYY where XXX are the three(!) task ID digits. Your '
-                             f'input: {dataset_name_or_id}')
+    # if dataset_name_or_id.startswith('Dataset'):
+    #     pass
+    # else:
+    #     try:
+    #         dataset_name_or_id = int(dataset_name_or_id)
+    #     except ValueError:
+    #         raise ValueError(f'dataset_name_or_id must either be an integer or a valid dataset name with the pattern '
+    #                          f'DatasetXXX_YYY where XXX are the three(!) task ID digits. Your '
+    #                          f'input: {dataset_name_or_id}')
 
     # initialize nnunet trainer
     preprocessed_dataset_folder_base = join(nnUNet_preprocessed, maybe_convert_to_dataset_name(dataset_name_or_id))
     plans_file = join(preprocessed_dataset_folder_base, plans_identifier + '.json')
     plans = load_json(plans_file)
     dataset_json = load_json(join(preprocessed_dataset_folder_base, 'dataset.json'))
+    dvc_yaml = load_yaml(join(preprocessed_dataset_folder_base, 'dataset_info.dvc'))
+    dataset_json = {**dataset_json, **dvc_yaml}
+
+    mlflow.log_params(dataset_json)
+
     nnunet_trainer = nnunet_trainer(plans=plans, configuration=configuration, fold=fold,
                                     dataset_json=dataset_json, unpack_dataset=not use_compressed, device=device)
     return nnunet_trainer
@@ -207,6 +219,15 @@ def run_training(dataset_name_or_id: Union[str, int],
             nnunet_trainer.load_checkpoint(join(nnunet_trainer.output_folder, 'checkpoint_best.pth'))
         nnunet_trainer.perform_actual_validation(export_validation_probabilities)
 
+        mlflow.log_artifact(join(nnunet_trainer.output_folder_base, "dataset.json"))
+        mlflow.log_artifact(join(nnunet_trainer.output_folder_base, "dataset_fingerprint.json"))
+        mlflow.log_artifact(join(nnunet_trainer.output_folder_base, "plans.json"))
+        mlflow.log_artifact(join(nnunet_trainer.output_folder, "checkpoint_best.pth"))
+        mlflow.log_artifact(join(nnunet_trainer.output_folder, "progress.png"))
+        mlflow.log_artifact(join(nnunet_trainer.output_folder, "debug.json"))
+        
+        mlflow.log_artifacts(join(nnunet_trainer.output_folder, "validation"))
+
 
 def run_training_entry():
     import argparse
@@ -249,6 +270,8 @@ def run_training_entry():
                     help="Use this to set the device the training should run with. Available options are 'cuda' "
                          "(GPU), 'cpu' (CPU) and 'mps' (Apple M1/M2). Do NOT use this to set which GPU ID! "
                          "Use CUDA_VISIBLE_DEVICES=X nnUNetv2_train [...] instead!")
+    parser.add_argument('--experiment', type=str, required=False,
+                    help="Use this to set the mlflow experiment name.")
     args = parser.parse_args()
 
     assert args.device in ['cpu', 'cuda', 'mps'], f'-device must be either cpu, mps or cuda. Other devices are not tested/supported. Got: {args.device}.'
@@ -265,9 +288,19 @@ def run_training_entry():
     else:
         device = torch.device('mps')
 
-    run_training(args.dataset_name_or_id, args.configuration, args.fold, args.tr, args.p, args.pretrained_weights,
-                 args.num_gpus, args.use_compressed, args.npz, args.c, args.val, args.disable_checkpointing, args.val_best,
-                 device=device)
+    if args.experiment:
+        if mlflow_tracking_token and mlflow_tracking_uri:
+            mlflow.set_experiment(experiment_name=args.experiment)
+        else:
+            print("Unable to create / use existing MLflow experiment because MLFLOW_TRACKING_TOKEN and MLFLOW_TRACKING_URI are not set.")
+            print("Ignoring the experiment argument.")
+
+
+    with mlflow.start_run():
+        mlflow.log_params(vars(args))
+        run_training(args.dataset_name_or_id, args.configuration, args.fold, args.tr, args.p, args.pretrained_weights,
+                    args.num_gpus, args.use_compressed, args.npz, args.c, args.val, args.disable_checkpointing, args.val_best,
+                    device=device)
 
 
 if __name__ == '__main__':

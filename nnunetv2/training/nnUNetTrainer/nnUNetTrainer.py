@@ -9,6 +9,8 @@ from datetime import datetime
 from time import time, sleep
 from typing import Union, Tuple, List
 
+import mlflow
+
 import numpy as np
 import torch
 from batchgenerators.dataloading.single_threaded_augmenter import SingleThreadedAugmenter
@@ -887,7 +889,11 @@ class nnUNetTrainer(object):
             l.backward()
             torch.nn.utils.clip_grad_norm_(self.network.parameters(), 12)
             self.optimizer.step()
-        return {'loss': l.detach().cpu().numpy()}
+        loss = {'loss': l.detach().cpu().numpy()}
+
+        mlflow.log_metric("loss/train", loss["loss"])
+
+        return loss
 
     def on_train_epoch_end(self, train_outputs: List[dict]):
         outputs = collate_outputs(train_outputs)
