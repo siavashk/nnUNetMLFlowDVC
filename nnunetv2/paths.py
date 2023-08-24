@@ -13,16 +13,37 @@
 #    limitations under the License.
 
 import os
+import subprocess
 
 """
 PLEASE READ paths.md FOR INFORMATION TO HOW TO SET THIS UP
 """
 
+def get_identity_token():
+    try:
+        # Run the gcloud command and capture its output
+        completed_process = subprocess.run(
+            ["gcloud", "auth", "print-identity-token"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        # Get the output (identity token) as a string
+        return completed_process.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        print(f"Error: unable to get the GCloud identity token because: {e}")
+        return None
+
+
+
+mlflow_tracking_token = get_identity_token()
+os.environ['MLFLOW_TRACKING_TOKEN'] = mlflow_tracking_token
+mlflow_tracking_uri = os.environ.get('MLFLOW_TRACKING_URI')
+
 nnUNet_raw = os.environ.get('nnUNet_raw')
 nnUNet_preprocessed = os.environ.get('nnUNet_preprocessed')
 nnUNet_results = os.environ.get('nnUNet_results')
-mlflow_tracking_token = os.environ.get('MLFLOW_TRACKING_TOKEN')
-mlflow_tracking_uri = os.environ.get('MLFLOW_TRACKING_URI')
 
 if nnUNet_raw is None:
     print("nnUNet_raw is not defined and nnU-Net can only be used on data for which preprocessed files "
@@ -49,5 +70,6 @@ if mlflow_tracking_uri is None:
     print("mlflow_tracking_uri is not defined so the experiment tracking cannot be sent "
           "to mlflow. If this is not intended behavior, please read documentation/setting_up_paths.md for information "
           "on how to set this up.")
+    
 
 

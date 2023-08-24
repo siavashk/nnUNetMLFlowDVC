@@ -5,7 +5,7 @@ import shutil
 import sys
 import warnings
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 from time import time, sleep
 from typing import Union, Tuple, List
 
@@ -29,7 +29,7 @@ from nnunetv2.evaluation.evaluate_predictions import compute_metrics_on_folder
 from nnunetv2.inference.export_prediction import export_prediction_from_logits, resample_and_save
 from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
 from nnunetv2.inference.sliding_window_prediction import compute_gaussian
-from nnunetv2.paths import nnUNet_preprocessed, nnUNet_results
+from nnunetv2.paths import nnUNet_preprocessed, nnUNet_results, mlflow_tracking_uri, get_identity_token
 from nnunetv2.training.data_augmentation.compute_initial_patch_size import get_patch_size
 from nnunetv2.training.data_augmentation.custom_transforms.cascade_transforms import MoveSegAsOneHotToData, \
     ApplyRandomBinaryOperatorTransform, RemoveRandomConnectedComponentFromOneHotEncodingTransform
@@ -187,6 +187,10 @@ class nnUNetTrainer(object):
         self._set_batch_size_and_oversample()
 
         self.was_initialized = False
+
+        self.token_timeout_minutes = 50
+        if mlflow_tracking_uri:
+            self.token_expiry_time = datetime.now() + timedelta(minutes=self.token_timeout_minutes)
 
         self.print_to_log_file("\n#######################################################################\n"
                                "Please cite the following paper when using nnU-Net:\n"
@@ -891,7 +895,12 @@ class nnUNetTrainer(object):
             self.optimizer.step()
         loss = {'loss': l.detach().cpu().numpy()}
 
-        mlflow.log_metric("loss/train", loss["loss"])
+        if mlflow_tracking_uri:
+            if self.token_expiry_time < datetime.now():
+                print("GCloud identity token has expired. Refreshing the token.")
+                os.environ["MLFLOW_TRACKING_TOKEN"] = get_identity_token()
+                self.token_expiry_time = datetime.now() + timedelta(minutes=self.token_timeout_minutes)
+            mlflow.log_metric("loss/train", loss["loss"])
 
         return loss
 
@@ -1006,6 +1015,16 @@ class nnUNetTrainer(object):
         self.logger.log('mean_fg_dice', mean_fg_dice, self.current_epoch)
         self.logger.log('dice_per_class_or_region', global_dc_per_class, self.current_epoch)
         self.logger.log('val_losses', loss_here, self.current_epoch)
+
+        if mlflow_tracking_uri:
+            if self.token_expiry_time < datetime.now():
+                print("GCloud identity token has expired. Refreshing the token.")
+                os.environ["MLFLOW_TRACKING_TOKEN"] = get_identity_token()
+                self.token_expiry_time = datetime.now() + timedelta(minutes=self.token_timeout_minutes)
+            mlflow.log_metric("loss/validation", loss_here)
+            mlflow.log_metric("Mean Foreground Dice/validation", mean_fg_dice)
+            global_dc_per_class_dict = {str(i): d for i, d in enumerate(global_dc_per_class)}
+            mlflow.log_metrics(global_dc_per_class_dict)
 
     def on_epoch_start(self):
         self.logger.log('epoch_start_timestamps', time(), self.current_epoch)

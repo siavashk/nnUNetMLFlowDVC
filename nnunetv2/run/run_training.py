@@ -1,3 +1,4 @@
+from datetime import datetime
 import os
 import socket
 from typing import Union, Optional
@@ -10,7 +11,7 @@ import torch.cuda
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from batchgenerators.utilities.file_and_folder_operations import join, isfile, load_json
-from nnunetv2.paths import nnUNet_preprocessed, mlflow_tracking_token, mlflow_tracking_uri
+from nnunetv2.paths import nnUNet_preprocessed, mlflow_tracking_token, mlflow_tracking_uri, get_identity_token
 from nnunetv2.run.load_pretrained_weights import load_pretrained_weights
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
@@ -53,16 +54,6 @@ def get_trainer_from_args(dataset_name_or_id: Union[int, str],
     assert issubclass(nnunet_trainer, nnUNetTrainer), 'The requested nnunet trainer class must inherit from ' \
                                                     'nnUNetTrainer'
 
-    # handle dataset input. If it's an ID we need to convert to int from string
-    # if dataset_name_or_id.startswith('Dataset'):
-    #     pass
-    # else:
-    #     try:
-    #         dataset_name_or_id = int(dataset_name_or_id)
-    #     except ValueError:
-    #         raise ValueError(f'dataset_name_or_id must either be an integer or a valid dataset name with the pattern '
-    #                          f'DatasetXXX_YYY where XXX are the three(!) task ID digits. Your '
-    #                          f'input: {dataset_name_or_id}')
 
     # initialize nnunet trainer
     preprocessed_dataset_folder_base = join(nnUNet_preprocessed, maybe_convert_to_dataset_name(dataset_name_or_id))
@@ -72,7 +63,9 @@ def get_trainer_from_args(dataset_name_or_id: Union[int, str],
     dvc_yaml = load_yaml(join(preprocessed_dataset_folder_base, 'dataset_info.dvc'))
     dataset_json = {**dataset_json, **dvc_yaml}
 
-    mlflow.log_params(dataset_json)
+    if mlflow_tracking_uri:
+        os.environ['MLFLOW_TRACKING_TOKEN'] = get_identity_token()
+        mlflow.log_params(dataset_json)
 
     nnunet_trainer = nnunet_trainer(plans=plans, configuration=configuration, fold=fold,
                                     dataset_json=dataset_json, unpack_dataset=not use_compressed, device=device)
@@ -219,14 +212,17 @@ def run_training(dataset_name_or_id: Union[str, int],
             nnunet_trainer.load_checkpoint(join(nnunet_trainer.output_folder, 'checkpoint_best.pth'))
         nnunet_trainer.perform_actual_validation(export_validation_probabilities)
 
-        mlflow.log_artifact(join(nnunet_trainer.output_folder_base, "dataset.json"))
-        mlflow.log_artifact(join(nnunet_trainer.output_folder_base, "dataset_fingerprint.json"))
-        mlflow.log_artifact(join(nnunet_trainer.output_folder_base, "plans.json"))
-        mlflow.log_artifact(join(nnunet_trainer.output_folder, "checkpoint_best.pth"))
-        mlflow.log_artifact(join(nnunet_trainer.output_folder, "progress.png"))
-        mlflow.log_artifact(join(nnunet_trainer.output_folder, "debug.json"))
-        
-        mlflow.log_artifacts(join(nnunet_trainer.output_folder, "validation"))
+        if mlflow_tracking_uri:
+            os.environ["MLFLOW_TRACKING_TOKEN"] = get_identity_token()
+
+            mlflow.log_artifact(join(nnunet_trainer.output_folder_base, "dataset.json"))
+            mlflow.log_artifact(join(nnunet_trainer.output_folder_base, "dataset_fingerprint.json"))
+            mlflow.log_artifact(join(nnunet_trainer.output_folder_base, "plans.json"))
+            mlflow.log_artifact(join(nnunet_trainer.output_folder, "checkpoint_best.pth"))
+            mlflow.log_artifact(join(nnunet_trainer.output_folder, "progress.png"))
+            mlflow.log_artifact(join(nnunet_trainer.output_folder, "debug.json"))
+            
+            mlflow.log_artifacts(join(nnunet_trainer.output_folder, "validation"))
 
 
 def run_training_entry():
@@ -289,7 +285,7 @@ def run_training_entry():
         device = torch.device('mps')
 
     if args.experiment:
-        if mlflow_tracking_token and mlflow_tracking_uri:
+        if mlflow_tracking_uri and os.environ.get("MLFLOW_TRACKING_TOKEN"):
             mlflow.set_experiment(experiment_name=args.experiment)
         else:
             print("Unable to create / use existing MLflow experiment because MLFLOW_TRACKING_TOKEN and MLFLOW_TRACKING_URI are not set.")
