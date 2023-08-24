@@ -1,6 +1,6 @@
-from datetime import datetime
 import os
 import socket
+import shutil
 from typing import Union, Optional
 import yaml
 
@@ -13,6 +13,7 @@ import torch.multiprocessing as mp
 from batchgenerators.utilities.file_and_folder_operations import join, isfile, load_json
 from nnunetv2.paths import nnUNet_preprocessed, mlflow_tracking_token, mlflow_tracking_uri, get_identity_token
 from nnunetv2.run.load_pretrained_weights import load_pretrained_weights
+from nnunetv2.run import wrapper_model
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
 from nnunetv2.utilities.find_class_by_name import recursive_find_python_class
@@ -22,6 +23,33 @@ from torch.backends import cudnn
 def load_yaml(filename: str):
     with open(filename, 'r') as f:
         return yaml.safe_load(f)
+    
+
+def copy_essential_files_for_inference_to_temp(nnunet_trainer: nnUNetTrainer, fold: Union[int, str]):
+    data_path = "/tmp/mlflow-model"
+    if os.path.isdir(data_path):
+        shutil.rmtree(data_path)
+    os.mkdir(data_path)
+
+    mlflow.log_artifact(join(nnunet_trainer.output_folder, "checkpoint_best.pth"))
+    shutil.copy(join(nnunet_trainer.output_folder_base, "dataset.json"), join(data_path, "dataset.json"))
+    shutil.copy(join(nnunet_trainer.output_folder_base, "dataset_fingerprint.json"), join(data_path, "dataset_fingerprint.json"))
+    shutil.copy(join(nnunet_trainer.output_folder_base, "plans.json"), join(data_path, "plans.json"))
+
+    if isinstance(fold, int):
+        fold_path = join(data_path, str(fold))
+        os.mkdir(fold_path)
+        shutil.copy(join(nnunet_trainer.output_folder, "checkpoint_best.pth"), join(fold_path, "checkpoint_best.pth"))
+    elif fold == "all":
+        for i in range(5):
+            fold_path = join(data_path, str(i))
+            os.mkdir(fold_path)
+            shutil.copy(join(nnunet_trainer.output_folder, "checkpoint_best.pth"), join(fold_path, "checkpoint_best.pth"))
+    else:
+        raise ValueError(f"Error: unknown value for fold {fold}. Expected either all or an int between 0 and 4 (inclusive).")
+    
+    return data_path
+
 
 def find_free_network_port() -> int:
     """Finds a free port on localhost.
@@ -214,15 +242,31 @@ def run_training(dataset_name_or_id: Union[str, int],
 
         if mlflow_tracking_uri:
             os.environ["MLFLOW_TRACKING_TOKEN"] = get_identity_token()
+            data_path = copy_essential_files_for_inference_to_temp(nnunet_trainer, fold)
+            conda_env = {
+                "name": "nnunetv2.6",
+                "channels": ["conda-forge"],
+                "dependencies": [
+                    "python=3.10.12",
+                    {
+                        "pip": [
+                            "torch==2.0.1",
+                            "git+https://github.com/MIC-DKFZ/nnUNet"
+                        ]
+                    }
+                ]
+            }
+            
+            mlflow.pyfunc.log_model(
+                artifact_path="model",
+                loader_module=wrapper_model.ModelWrapper.__name__,
+                data_path=data_path,
+                conda_env=conda_env
+            )
 
-            mlflow.log_artifact(join(nnunet_trainer.output_folder_base, "dataset.json"))
-            mlflow.log_artifact(join(nnunet_trainer.output_folder_base, "dataset_fingerprint.json"))
-            mlflow.log_artifact(join(nnunet_trainer.output_folder_base, "plans.json"))
-            mlflow.log_artifact(join(nnunet_trainer.output_folder, "checkpoint_best.pth"))
             mlflow.log_artifact(join(nnunet_trainer.output_folder, "progress.png"))
             mlflow.log_artifact(join(nnunet_trainer.output_folder, "debug.json"))
-            
-            mlflow.log_artifacts(join(nnunet_trainer.output_folder, "validation"))
+            mlflow.log_artifacts(join(nnunet_trainer.output_folder, "validation"), artifact_path="validation")
 
 
 def run_training_entry():
