@@ -900,7 +900,7 @@ class nnUNetTrainer(object):
                 print("GCloud identity token has expired. Refreshing the token.")
                 os.environ["MLFLOW_TRACKING_TOKEN"] = get_identity_token()
                 self.token_expiry_time = datetime.now() + timedelta(minutes=self.token_timeout_minutes)
-            mlflow.log_metric("loss/train", loss["loss"])
+            mlflow.log_metric(f"fold{self.fold}/loss/train", loss["loss"])
 
         return loss
 
@@ -1021,9 +1021,9 @@ class nnUNetTrainer(object):
                 print("GCloud identity token has expired. Refreshing the token.")
                 os.environ["MLFLOW_TRACKING_TOKEN"] = get_identity_token()
                 self.token_expiry_time = datetime.now() + timedelta(minutes=self.token_timeout_minutes)
-            mlflow.log_metric("loss/validation", loss_here)
-            mlflow.log_metric("Mean Foreground Dice/validation", mean_fg_dice)
-            global_dc_per_class_dict = {str(i): d for i, d in enumerate(global_dc_per_class)}
+            mlflow.log_metric(f"fold{self.fold}/loss/validation", loss_here)
+            mlflow.log_metric(f"fold{self.fold}/Mean Foreground Dice/validation", mean_fg_dice)
+            global_dc_per_class_dict = {f"fold{self.fold}/{str(i)}": d for i, d in enumerate(global_dc_per_class)}
             mlflow.log_metrics(global_dc_per_class_dict)
 
     def on_epoch_start(self):
@@ -1258,6 +1258,7 @@ class nnUNetTrainer(object):
             train_outputs = []
             for batch_id in range(self.num_iterations_per_epoch):
                 train_outputs.append(self.train_step(next(self.dataloader_train)))
+                break
             self.on_train_epoch_end(train_outputs)
 
             with torch.no_grad():

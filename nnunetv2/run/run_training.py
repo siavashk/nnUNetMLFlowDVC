@@ -25,28 +25,29 @@ def load_yaml(filename: str):
         return yaml.safe_load(f)
     
 
-def copy_essential_files_for_inference_to_temp(nnunet_trainer: nnUNetTrainer, fold: Union[int, str]):
+def copy_essential_files_for_inference_to_temp(output_folder_base: str, fold: Union[int, str]):
     data_path = "/tmp/mlflow-model"
+
     if os.path.isdir(data_path):
         shutil.rmtree(data_path)
+
     os.mkdir(data_path)
 
-    mlflow.log_artifact(join(nnunet_trainer.output_folder, "checkpoint_best.pth"))
-    shutil.copy(join(nnunet_trainer.output_folder_base, "dataset.json"), join(data_path, "dataset.json"))
-    shutil.copy(join(nnunet_trainer.output_folder_base, "dataset_fingerprint.json"), join(data_path, "dataset_fingerprint.json"))
-    shutil.copy(join(nnunet_trainer.output_folder_base, "plans.json"), join(data_path, "plans.json"))
+    shutil.copy(join(output_folder_base, "dataset.json"), join(data_path, "dataset.json"))
+    shutil.copy(join(output_folder_base, "dataset_fingerprint.json"), join(data_path, "dataset_fingerprint.json"))
+    shutil.copy(join(output_folder_base, "plans.json"), join(data_path, "plans.json"))
 
     if isinstance(fold, int):
-        fold_path = join(data_path, str(fold))
+        fold_path = join(data_path, f"fold_{fold}")
         os.mkdir(fold_path)
-        shutil.copy(join(nnunet_trainer.output_folder, "checkpoint_best.pth"), join(fold_path, "checkpoint_best.pth"))
-    elif fold == "all":
+        shutil.copy(join(output_folder_base, f"fold_{fold}", "checkpoint_best.pth"), join(fold_path, "checkpoint_best.pth"))
+    elif fold == "crossvalidation":
         for i in range(5):
-            fold_path = join(data_path, str(i))
+            fold_path = join(data_path, f"fold_{i}")
             os.mkdir(fold_path)
-            shutil.copy(join(nnunet_trainer.output_folder, "checkpoint_best.pth"), join(fold_path, "checkpoint_best.pth"))
+            shutil.copy(join(output_folder_base, f"fold_{i}", "checkpoint_best.pth"), join(fold_path, "checkpoint_best.pth"))
     else:
-        raise ValueError(f"Error: unknown value for fold {fold}. Expected either all or an int between 0 and 4 (inclusive).")
+        raise ValueError(f"Error: unknown value for fold {fold}. Expected either crossvalidation or an int between 0 and 4 (inclusive).")
     
     return data_path
 
@@ -168,6 +169,62 @@ def run_ddp(rank, dataset_name_or_id, configuration, fold, tr, p, use_compressed
     cleanup_ddp()
 
 
+def train_one_fold_synchronously(dataset_name_or_id, configuration, fold, trainer_class_name, 
+                                plans_identifier, use_compressed_data, device, disable_checkpointing,
+                                continue_training, only_run_validation, pretrained_weights, val_with_best, export_validation_probabilities):
+    nnunet_trainer = get_trainer_from_args(dataset_name_or_id, configuration, fold, trainer_class_name,
+                                        plans_identifier, use_compressed_data, device=device)
+
+    if disable_checkpointing:
+        nnunet_trainer.disable_checkpointing = disable_checkpointing
+
+    assert not (continue_training and only_run_validation), f'Cannot set --c and --val flag at the same time. Dummy.'
+
+    maybe_load_checkpoint(nnunet_trainer, continue_training, only_run_validation, pretrained_weights)
+
+    if torch.cuda.is_available():
+        cudnn.deterministic = False
+        cudnn.benchmark = True
+
+    if not only_run_validation:
+        nnunet_trainer.run_training()
+
+    if val_with_best:
+        nnunet_trainer.load_checkpoint(join(nnunet_trainer.output_folder, 'checkpoint_best.pth'))
+    nnunet_trainer.perform_actual_validation(export_validation_probabilities)
+
+    return nnunet_trainer
+
+def mlflow_log_artifacts(nnunet_trainer: nnUNetTrainer, fold: Union[str, int]):
+    if mlflow_tracking_uri:
+        os.environ["MLFLOW_TRACKING_TOKEN"] = get_identity_token()
+        data_path = copy_essential_files_for_inference_to_temp(nnunet_trainer, fold)
+        conda_env = {
+            "name": "nnunetv2.6",
+            "channels": ["conda-forge"],
+            "dependencies": [
+                "python=3.10.12",
+                {
+                    "pip": [
+                        "torch==2.0.1",
+                        "git+https://github.com/MIC-DKFZ/nnUNet"
+                    ]
+                }
+            ]
+        }
+        
+        mlflow.pyfunc.log_model(
+            artifact_path="model",
+            loader_module=wrapper_model.ModelWrapper.__name__,
+            data_path=data_path,
+            conda_env=conda_env
+        )
+
+        mlflow.log_artifact(join(nnunet_trainer.output_folder, "progress.png"))
+        mlflow.log_artifact(join(nnunet_trainer.output_folder, "debug.json"))
+        mlflow.log_artifacts(join(nnunet_trainer.output_folder, "validation"), artifact_path="validation")
+
+
 def run_training(dataset_name_or_id: Union[str, int],
                  configuration: str, fold: Union[int, str],
                  trainer_class_name: str = 'nnUNetTrainer',
@@ -182,7 +239,11 @@ def run_training(dataset_name_or_id: Union[str, int],
                  val_with_best: bool = False,
                  device: torch.device = torch.device('cuda')):
     if isinstance(fold, str):
-        if fold != 'all':
+        if fold == 'all':
+            pass
+        elif fold == "crossvalidation":
+            pass
+        else:
             try:
                 fold = int(fold)
             except ValueError as e:
@@ -219,30 +280,19 @@ def run_training(dataset_name_or_id: Union[str, int],
                  nprocs=num_gpus,
                  join=True)
     else:
-        nnunet_trainer = get_trainer_from_args(dataset_name_or_id, configuration, fold, trainer_class_name,
-                                               plans_identifier, use_compressed_data, device=device)
-
-        if disable_checkpointing:
-            nnunet_trainer.disable_checkpointing = disable_checkpointing
-
-        assert not (continue_training and only_run_validation), f'Cannot set --c and --val flag at the same time. Dummy.'
-
-        maybe_load_checkpoint(nnunet_trainer, continue_training, only_run_validation, pretrained_weights)
-
-        if torch.cuda.is_available():
-            cudnn.deterministic = False
-            cudnn.benchmark = True
-
-        if not only_run_validation:
-            nnunet_trainer.run_training()
-
-        if val_with_best:
-            nnunet_trainer.load_checkpoint(join(nnunet_trainer.output_folder, 'checkpoint_best.pth'))
-        nnunet_trainer.perform_actual_validation(export_validation_probabilities)
+        if isinstance(fold, int):
+            nnunet_trainer = train_one_fold_synchronously(dataset_name_or_id, configuration, fold, trainer_class_name, 
+                                plans_identifier, use_compressed_data, device, disable_checkpointing,
+                                continue_training, only_run_validation, pretrained_weights, val_with_best, export_validation_probabilities)
+        elif fold == "crossvalidation":
+            for i in range(5):
+                nnunet_trainer = train_one_fold_synchronously(dataset_name_or_id, configuration, i, trainer_class_name, 
+                                plans_identifier, use_compressed_data, device, disable_checkpointing,
+                                continue_training, only_run_validation, pretrained_weights, val_with_best, export_validation_probabilities)
 
         if mlflow_tracking_uri:
             os.environ["MLFLOW_TRACKING_TOKEN"] = get_identity_token()
-            data_path = copy_essential_files_for_inference_to_temp(nnunet_trainer, fold)
+            data_path = copy_essential_files_for_inference_to_temp(nnunet_trainer.output_folder_base, fold)
             conda_env = {
                 "name": "nnunetv2.6",
                 "channels": ["conda-forge"],
@@ -264,9 +314,15 @@ def run_training(dataset_name_or_id: Union[str, int],
                 conda_env=conda_env
             )
 
-            mlflow.log_artifact(join(nnunet_trainer.output_folder, "progress.png"))
-            mlflow.log_artifact(join(nnunet_trainer.output_folder, "debug.json"))
-            mlflow.log_artifacts(join(nnunet_trainer.output_folder, "validation"), artifact_path="validation")
+            if isinstance(fold, int): 
+                mlflow.log_artifact(join(nnunet_trainer.output_folder_base, f"fold_{fold}", "progress.png"))
+                mlflow.log_artifact(join(nnunet_trainer.output_folder_base, f"fold_{fold}", "debug.json"))
+                mlflow.log_artifacts(join(nnunet_trainer.output_folder_base, f"fold_{fold}", "validation"), artifact_path="validation")
+            elif fold == "crossvalidation":
+                for i in range(5):
+                    mlflow.log_artifact(join(nnunet_trainer.output_folder_base, f"fold_{i}", "progress.png"), artifact_path=f"fold_{i}")
+                    mlflow.log_artifact(join(nnunet_trainer.output_folder_base, f"fold_{i}", "debug.json"), artifact_path=f"fold_{i}")
+                    mlflow.log_artifacts(join(nnunet_trainer.output_folder_base, f"fold_{i}", "validation"), artifact_path="validation")
 
 
 def run_training_entry():
