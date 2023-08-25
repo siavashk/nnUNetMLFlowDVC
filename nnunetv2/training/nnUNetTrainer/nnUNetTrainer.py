@@ -1258,7 +1258,6 @@ class nnUNetTrainer(object):
             train_outputs = []
             for batch_id in range(self.num_iterations_per_epoch):
                 train_outputs.append(self.train_step(next(self.dataloader_train)))
-                break
             self.on_train_epoch_end(train_outputs)
 
             with torch.no_grad():
