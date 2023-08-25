@@ -6,8 +6,8 @@ class ModelWrapper:
     def __init__(self, predictor: nnUNetPredictor):
         self.predictor = predictor
 
-    def predict(self, arr, params):
-        return self.predictor.predict_single_npy_array(arr, params, None, None, False)
+    def predict(self, volume, params):
+        return self.predictor.predict_single_npy_array(volume, params, None, None, False)
 
 
 def _load_pyfunc(path):
