@@ -1,10 +1,12 @@
 import os
 import socket
 import shutil
+import sys
 from typing import Union, Optional
 import yaml
 
 import mlflow
+import numpy as np
 
 import nnunetv2
 import torch.cuda
@@ -195,35 +197,6 @@ def train_one_fold_synchronously(dataset_name_or_id, configuration, fold, traine
 
     return nnunet_trainer
 
-def mlflow_log_artifacts(nnunet_trainer: nnUNetTrainer, fold: Union[str, int]):
-    if mlflow_tracking_uri:
-        os.environ["MLFLOW_TRACKING_TOKEN"] = get_identity_token()
-        data_path = copy_essential_files_for_inference_to_temp(nnunet_trainer, fold)
-        conda_env = {
-            "name": "nnunetv2.6",
-            "channels": ["conda-forge"],
-            "dependencies": [
-                "python=3.10.12",
-                {
-                    "pip": [
-                        "torch==2.0.1",
-                        "git+https://github.com/MIC-DKFZ/nnUNet"
-                    ]
-                }
-            ]
-        }
-        
-        mlflow.pyfunc.log_model(
-            artifact_path="model",
-            loader_module=wrapper_model.ModelWrapper.__name__,
-            data_path=data_path,
-            conda_env=conda_env
-        )
-
-        mlflow.log_artifact(join(nnunet_trainer.output_folder, "progress.png"))
-        mlflow.log_artifact(join(nnunet_trainer.output_folder, "debug.json"))
-        mlflow.log_artifacts(join(nnunet_trainer.output_folder, "validation"), artifact_path="validation")
-
 
 def run_training(dataset_name_or_id: Union[str, int],
                  configuration: str, fold: Union[int, str],
@@ -297,7 +270,7 @@ def run_training(dataset_name_or_id: Union[str, int],
                 "name": "nnunetv2.6",
                 "channels": ["conda-forge"],
                 "dependencies": [
-                    "python=3.10.12",
+                    f"python={sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
                     {
                         "pip": [
                             "torch==2.0.1",
@@ -306,12 +279,29 @@ def run_training(dataset_name_or_id: Union[str, int],
                     }
                 ]
             }
+
+            input_schema = mlflow.types.schema.Schema([
+                mlflow.types.TensorSpec(np.dtype(np.uint16), (1, -1, -1, -1), name="volume") # (1) channels x height x width x depth
+            ])
+            
+            output_schema = mlflow.types.schema.Schema([
+                mlflow.types.TensorSpec(np.dtype(np.uint16), (-1, -1, -1), name="label")
+            ])
+            
+            params_schema = mlflow.types.ParamSchema([
+                mlflow.types.schema.ParamSpec("spacing", "float", [5.003496170043945, 1.6796875, 1.6796875], (-1,))
+            ])
+
+            signature = mlflow.models.ModelSignature(
+                inputs=input_schema, outputs=output_schema, params=params_schema
+            )
             
             mlflow.pyfunc.log_model(
                 artifact_path="model",
                 loader_module=wrapper_model.ModelWrapper.__name__,
                 data_path=data_path,
-                conda_env=conda_env
+                conda_env=conda_env,
+                signature=signature
             )
 
             if isinstance(fold, int): 
