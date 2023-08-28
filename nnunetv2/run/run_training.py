@@ -281,20 +281,20 @@ def run_training(dataset_name_or_id: Union[str, int],
             }
 
             input_schema = mlflow.types.schema.Schema([
-                mlflow.types.TensorSpec(np.dtype(np.uint16), (1, -1, -1, -1), name="volume") # (1) channels x height x width x depth
+                mlflow.types.ColSpec(type="string", name="base64_array"),
+                mlflow.types.ColSpec(type="integer", name="depth"),
+                mlflow.types.ColSpec(type="integer", name="width"),
+                mlflow.types.ColSpec(type="integer", name="height"),
+                mlflow.types.ColSpec(type="double", name="spacing_z"),
+                mlflow.types.ColSpec(type="double", name="spacing_y"),
+                mlflow.types.ColSpec(type="double", name="spacing_x")
             ])
             
             output_schema = mlflow.types.schema.Schema([
                 mlflow.types.TensorSpec(np.dtype(np.uint16), (-1, -1, -1), name="label")
             ])
             
-            params_schema = mlflow.types.ParamSchema([
-                mlflow.types.schema.ParamSpec("spacing", "float", [5.003496170043945, 1.6796875, 1.6796875], (-1,))
-            ])
-
-            signature = mlflow.models.ModelSignature(
-                inputs=input_schema, outputs=output_schema, params=params_schema
-            )
+            signature = mlflow.models.ModelSignature(inputs=input_schema, outputs=output_schema)
             
             mlflow.pyfunc.log_model(
                 artifact_path="model",
