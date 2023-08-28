@@ -22,6 +22,6 @@ def _load_pyfunc(path):
         allow_tqdm=True
     )
 
-    predictor.initialize_from_trained_model_folder(path, checkpoint_name='checkpoint_best.pth')
+    predictor.initialize_from_trained_model_folder(path, use_folds=None, checkpoint_name='checkpoint_best.pth')
     
     return ModelWrapper(predictor=predictor)

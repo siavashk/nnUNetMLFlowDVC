@@ -298,10 +298,11 @@ def run_training(dataset_name_or_id: Union[str, int],
             
             mlflow.pyfunc.log_model(
                 artifact_path="model",
-                loader_module=wrapper_model.ModelWrapper.__name__,
+                loader_module="wrapper_model",
                 data_path=data_path,
                 conda_env=conda_env,
-                signature=signature
+                signature=signature,
+                code_path=[wrapper_model.__file__]
             )
 
             if isinstance(fold, int): 
