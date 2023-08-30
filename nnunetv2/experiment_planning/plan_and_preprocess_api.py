@@ -1,4 +1,6 @@
+import json
 import shutil
+import subprocess
 from typing import List, Type, Optional, Tuple, Union
 
 import nnunetv2
@@ -148,3 +150,24 @@ def copy_dvc_info(dataset_ids: List[Union[int, str]]):
     
     for dataset_id in dataset_ids:
         helper(dataset_id)
+
+
+def copy_git_info(dataset_ids: List[Union[int, str]]):
+    def get_git_remote_url():
+        command = ['git', '-C', nnUNet_raw, 'config', '--get', 'remote.origin.url']
+        return subprocess.check_output(command).decode('ascii').strip()
+    
+    def get_git_revision_hash():
+        command = ['git', '-C', nnUNet_raw, 'rev-parse', 'HEAD']
+        return subprocess.check_output(command).decode('ascii').strip()
+
+    for dataset_id in dataset_ids:
+        dataset_name = convert_id_to_dataset_name(dataset_id)
+        try:
+            git_info = {"remote_url": get_git_remote_url(), "hash": get_git_revision_hash()}
+        except Exception as err:
+            print(f"Error: unable to get git information because of the following error: {err}")
+            return
+
+        with open(join(nnUNet_preprocessed, dataset_name, 'git_info.json'), 'w') as f:
+            json.dump(git_info, f, indent=4)

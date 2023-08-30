@@ -2,6 +2,7 @@ import os
 import socket
 import shutil
 import sys
+import subprocess
 from typing import Union, Optional
 import yaml
 
@@ -92,7 +93,8 @@ def get_trainer_from_args(dataset_name_or_id: Union[int, str],
     plans = load_json(plans_file)
     dataset_json = load_json(join(preprocessed_dataset_folder_base, 'dataset.json'))
     dvc_yaml = load_yaml(join(preprocessed_dataset_folder_base, 'dataset_info.dvc'))
-    dataset_json = {**dataset_json, **dvc_yaml}
+    git_json = load_json(join(preprocessed_dataset_folder_base, 'git_info.json'))
+    dataset_json = {**dataset_json, **dvc_yaml, **git_json}
 
     if mlflow_tracking_uri:
         os.environ['MLFLOW_TRACKING_TOKEN'] = get_identity_token()
